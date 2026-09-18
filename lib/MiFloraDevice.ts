@@ -106,6 +106,17 @@ export default class MiFloraDevice extends Homey.Device {
       await this.addCapability('alarm_moisture');
     }
 
+    // Apple Home bridges recognise Homey's standard humidity capability, while
+    // `measure_moisture` remains the correct plant/soil measurement for Homey
+    // Flows. Mirror the value instead of replacing the existing capability.
+    if (this.getDriver().getSupportedCapabilities().includes('measure_humidity') && !this.hasCapability('measure_humidity')) {
+      await this.addCapability('measure_humidity');
+      const moisture = this.getCapabilityValue('measure_moisture');
+      if (typeof moisture === 'number') {
+        await this.setCapabilityValue('measure_humidity', moisture);
+      }
+    }
+
     await super.onInit();
   }
 
@@ -152,6 +163,13 @@ export default class MiFloraDevice extends Homey.Device {
     await this._checkThresholdTrigger(capability, value);
 
     this.setCapabilityValue(capability, value).catch(console.error);
+
+    // Expose soil moisture through Homey's standard humidity capability for
+    // HomeKit-compatible bridges. Keep the native moisture capability intact
+    // so existing Homey Flows and thresholds continue to work as-is.
+    if (capability === 'measure_moisture' && this.hasCapability('measure_humidity')) {
+      this.setCapabilityValue('measure_humidity', value).catch(console.error);
+    }
 
     if (currentValue !== value) {
 

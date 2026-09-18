@@ -82,5 +82,11 @@
   },
   "4.4.4": {
     "en": "Changed debug interval of 5 sec to 5 min"
+  },
+  "4.4.5": {
+    "en": "Improve BLE polling reliability and scheduler recovery"
+  },
+  "4.5.0": {
+    "en": "Expose soil moisture as a HomeKit-compatible humidity measurement"
   }
 }

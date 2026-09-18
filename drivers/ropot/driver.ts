@@ -26,6 +26,7 @@ class MiFloraRopotDriver extends MiFloraDriver {
       'measure_temperature',
       'measure_nutrition',
       'measure_moisture',
+      'measure_humidity',
       'alarm_temperature',
       'alarm_nutrition',
       'alarm_moisture',

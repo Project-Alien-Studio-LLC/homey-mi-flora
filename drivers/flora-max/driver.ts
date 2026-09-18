@@ -29,6 +29,7 @@ class MiFloraMaxSensorDriver extends MiFloraDriver {
       'measure_luminance',
       'measure_nutrition',
       'measure_moisture',
+      'measure_humidity',
       'measure_battery',
       'alarm_temperature',
       'alarm_luminance',
