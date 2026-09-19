@@ -499,7 +499,8 @@ export default class HomeyMiFloraApp extends App {
 
         this._retryMap.set(device.id, 0);
 
-        throw new Error(`Max retries (${ MAX_RETRIES }) exceeded, no success`);
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(`Max retries (${ MAX_RETRIES }) exceeded: ${ reason }`);
       });
   }
 
