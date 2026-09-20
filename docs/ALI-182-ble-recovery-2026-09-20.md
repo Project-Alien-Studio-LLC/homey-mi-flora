@@ -66,4 +66,7 @@ without another Bridge power cycle. No device re-pairing or factory reset has
 been performed. Can diagnostic logging identify the stalled scan state, and is a
 firmware fix or Bridge hardware check required?
 
-This request is prepared for review; it has not been sent to Athom.
+Submitted through the signed-in Homey Pro mini support form on September 20 at
+17:15 UTC, with the user's approval for the report and automatically included
+Homey diagnostics. Homey displayed “Thanks for your message! Your e-mail
+confirmation is on its way.” No case number was displayed at submission.
