@@ -473,8 +473,10 @@ export default class HomeyMiFloraApp extends App {
     }
 
     return await this.handleUpdateSequence(device)
-      .then(() => {
+      .then(async () => {
         this._retryMap.set(device.id, 0);
+        // Only a completed sensor read can clear the previous read failure.
+        await device.unsetWarning().catch(error => this.error('Cannot clear sensor warning', error));
         return device;
       })
       .catch(async error => {
@@ -500,6 +502,8 @@ export default class HomeyMiFloraApp extends App {
         this._retryMap.set(device.id, 0);
 
         const reason = error instanceof Error ? error.message : String(error);
+        await device.setWarning(`Sensor refresh failed; readings may be stale. ${ reason }`)
+          .catch(warningError => this.error('Cannot set sensor warning', warningError));
         throw new Error(`Max retries (${ MAX_RETRIES }) exceeded: ${ reason }`);
       });
   }
