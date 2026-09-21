@@ -132,6 +132,25 @@ export default class MiFloraDevice extends Homey.Device {
   private _lastConnectedUpdate: Map<string, number> = new Map();
 
   /**
+   * Timestamp of the last value written from any source.
+   */
+  private _lastValueUpdate: number = 0;
+
+  /**
+   * True when some reading arrived recently, whether by connecting or by
+   * broadcast. A failed connection only means the readings are stale if
+   * nothing else has reported in the meantime.
+   */
+  hasRecentReading(): boolean {
+    if (this._lastValueUpdate === 0) {
+      return false;
+    }
+
+    const minutes = Number(this.homey.settings.get('updateInterval')) || 15;
+    return (Date.now() - this._lastValueUpdate) < (minutes * 2 * 60 * 1000);
+  }
+
+  /**
    * True when a connected read set this capability recently enough that an
    * advertised value should not replace it. The window is two polling
    * intervals, so a single missed poll still lets advertised data through.
@@ -163,6 +182,8 @@ export default class MiFloraDevice extends Homey.Device {
     if (source === 'connected') {
       this._lastConnectedUpdate.set(capability, Date.now());
     }
+
+    this._lastValueUpdate = Date.now();
 
     const currentValue = this.getCapabilityValue(capability);
 

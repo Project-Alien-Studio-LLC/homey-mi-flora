@@ -521,8 +521,17 @@ export default class HomeyMiFloraApp extends App {
         this._retryMap.set(device.id, 0);
 
         const reason = error instanceof Error ? error.message : String(error);
-        await device.setWarning(`Sensor refresh failed; readings may be stale. ${ reason }`)
-          .catch(warningError => this.error('Cannot set sensor warning', warningError));
+
+        // Only warn when the readings really are stale. A sensor that keeps
+        // broadcasting is still reporting current values, and warning on every
+        // failed connection would make the warning flap on and off as the
+        // advertised path clears it again a few minutes later.
+        if (device.hasRecentReading()) {
+          console.log(`${ device.getName() }: could not connect (${ reason }), using advertised readings`);
+        } else {
+          await device.setWarning(`Sensor refresh failed; readings may be stale. ${ reason }`)
+            .catch(warningError => this.error('Cannot set sensor warning', warningError));
+        }
         throw new Error(`Max retries (${ MAX_RETRIES }) exceeded: ${ reason }`);
       });
   }
