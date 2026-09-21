@@ -4,6 +4,12 @@ import HomeyMiFloraApp from '../app';
 import MiFloraDriver from './MiFloraDriver';
 import { CombinedCapabilities } from '../types/Capabilities';
 
+/**
+ * Where a sensor value came from: a direct connected read, or a passively
+ * received BLE advertisement.
+ */
+export type ValueSource = 'connected' | 'advertised';
+
 export default class MiFloraDevice extends Homey.Device {
   private _id: string = '';
   private _retry: number = 0;
@@ -121,9 +127,43 @@ export default class MiFloraDevice extends Homey.Device {
   }
 
   /**
+   * Timestamp of the last successful connected read, per capability.
+   */
+  private _lastConnectedUpdate: Map<string, number> = new Map();
+
+  /**
+   * True when a connected read set this capability recently enough that an
+   * advertised value should not replace it. The window is two polling
+   * intervals, so a single missed poll still lets advertised data through.
+   */
+  private hasFreshConnectedValue(capability: string): boolean {
+    const last = this._lastConnectedUpdate.get(capability);
+    if (last === undefined) {
+      return false;
+    }
+
+    const minutes = Number(this.homey.settings.get('updateInterval')) || 15;
+    return (Date.now() - last) < (minutes * 2 * 60 * 1000);
+  }
+
+  /**
    * update the detected sensor values and emit the triggers
    */
-  async updateCapabilityValue(capability: string, value: number | string) {
+  async updateCapabilityValue(capability: string, value: number | string, source: ValueSource = 'connected'): Promise<boolean> {
+    // A connected read talks to the sensor directly and is authoritative. The
+    // advertised broadcast only carries one measurement per frame and can
+    // disagree with the connected read on some units, so it must not overwrite
+    // a fresh connected value — otherwise the two sources flap against each
+    // other. Advertised data still fills the gap for sensors that are in range
+    // to broadcast but too weak or intermittent to connect.
+    if (source === 'advertised' && this.hasFreshConnectedValue(capability)) {
+      return false;
+    }
+
+    if (source === 'connected') {
+      this._lastConnectedUpdate.set(capability, Date.now());
+    }
+
     const currentValue = this.getCapabilityValue(capability);
 
     this.getApp()?.globalSensorUpdated?.trigger({
@@ -205,6 +245,8 @@ export default class MiFloraDevice extends Homey.Device {
           console.error('Cannot trigger flow card deviceSensorChanged global: %s.', error);
         });
     }
+
+    return true;
   }
 
   /**

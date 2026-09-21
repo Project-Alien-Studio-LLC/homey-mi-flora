@@ -16,6 +16,14 @@ const FIRMWARE_CHARACTERISTIC_UUID = '00001a0200001000800000805f9b34fb';
 const REALTIME_CHARACTERISTIC_UUID = '00001a0000001000800000805f9b34fb';
 const ADVERTISING_SERVICE_UUID = '0000fe95-0000-1000-8000-00805f9b34fb';
 
+// Homey reports service data UUIDs in the 16-bit short form (`fe95`), while the
+// constant above is the full 128-bit form. Normalise both sides before
+// comparing, otherwise the advertised-service path never matches a sensor.
+const normaliseUuid = (uuid?: string): string => {
+  const value = (uuid ?? '').toLowerCase().replace(/-/g, '');
+  return value.length === 4 ? `0000${ value }00001000800000805f9b34fb` : value;
+};
+
 const MAX_RETRIES = 3;
 
 export default class HomeyMiFloraApp extends App {
@@ -188,7 +196,7 @@ export default class HomeyMiFloraApp extends App {
         if (!Array.isArray(adv.serviceData)) continue;
 
         const fe95 = adv.serviceData.find(
-          e => e.uuid?.toLowerCase() === ADVERTISING_SERVICE_UUID
+          e => normaliseUuid(e.uuid) === normaliseUuid(ADVERTISING_SERVICE_UUID)
         );
 
         if (!fe95 || !Buffer.isBuffer(fe95.data)) continue;
@@ -243,15 +251,26 @@ export default class HomeyMiFloraApp extends App {
           const device: MiFloraDevice | undefined = this._devices.find(current => current.id === id);
 
           if (device) {
+            let applied = false;
+
             await this.asyncForEach(device.getCapabilities(), async characteristic => {
               const characteristicAlias = characteristic as DeviceCapabilities;
               if (sensorValues.hasOwnProperty(characteristic) && sensorValues[characteristicAlias] !== undefined) {
                 if (this._enableDebugging) {
                   console.log(`update ${ characteristic } to ${ sensorValues[characteristicAlias] } for ${ device.getName() }`);
                 }
-                await device.updateCapabilityValue(characteristic, sensorValues[characteristicAlias]);
+                if (await device.updateCapabilityValue(characteristic, sensorValues[characteristicAlias], 'advertised')) {
+                  applied = true;
+                }
               }
             });
+
+            // A broadcast that lands is a real reading, so "readings may be
+            // stale" is no longer true. Sensors that are in range to advertise
+            // but too weak to connect would otherwise keep a warning forever.
+            if (applied) {
+              await device.unsetWarning().catch(error => this.error('Cannot clear sensor warning', error));
+            }
           }
 
           index += 3 + length;
