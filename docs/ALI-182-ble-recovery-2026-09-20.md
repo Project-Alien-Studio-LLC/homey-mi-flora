@@ -70,3 +70,35 @@ Submitted through the signed-in Homey Pro mini support form on September 20 at
 17:15 UTC, with the user's approval for the report and automatically included
 Homey diagnostics. Homey displayed “Thanks for your message! Your e-mail
 confirmation is on its way.” No case number was displayed at submission.
+
+## Follow-up evidence, September 21–22
+
+Times are local (EDT).
+
+1. **The HomeKit Controller app (`com.verbem.Hhomekiy`) accelerates the stall.** With
+   it stopped, discovery returned 94–131 advertisements for over 3 hours. After it
+   was re-enabled, discovery degraded within about 20 minutes and returned zero by
+   about 50 minutes. Stopping it again, with no reboot, restored 117–133
+   advertisements within 2.5 minutes. It has since been uninstalled.
+2. **The stall recurs without it.** After a user-initiated Homey restart at 10:50 on
+   September 22 (Homey 13.5.1-rc.5, updated overnight by OTA), BLE plant readings
+   continued until about 16:41 and then stopped. At 19:30, DISCOVER took 16–20 s
+   and returned zero advertisements. The Bridge was available.
+3. **No remaining app holds the stall.** Each of the three apps with BLE permission
+   (SwitchBot, Govee, Mi Flora) was stopped for about 4 minutes, one at a time, with
+   discovery checked every 45–55 s. Discovery stayed at zero throughout, and each
+   app was re-enabled afterwards. Unlike HomeKit Controller, removing any one of
+   them does not release the stall.
+4. **Memory pressure is high and rising.** With 956 MB total, free memory was
+   80–140 MB and swap grew from 632 MB (September 21) to 736 MB (September 22).
+   This is recorded as context only. Freeing about 110 MB by stopping apps did not
+   restore BLE on September 21, so memory has not been shown to cause the stall.
+
+Three of the five plant sensors were replaced with Zigbee sensors on September 21
+and are unaffected. The two remaining BLE sensors are Calathea and Marble Green
+Pothos.
+
+For Athom: the stall now appears to be time-dependent within a single boot (about
+6 hours on 13.5.1-rc.5), and it is not tied to any one app. HomeKit Controller
+made it much faster, which may point to a resource that BLE clients exhaust but
+never release.
