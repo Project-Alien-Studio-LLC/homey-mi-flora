@@ -11,13 +11,26 @@ import { CombinedCapabilities } from '../types/Capabilities';
 export type ValueSource = 'connected' | 'advertised';
 
 /**
- * Capabilities where a 0 needs confirming before it replaces a non-zero value.
+ * Probe readings where a 0 needs checking before it replaces a non-zero value,
+ * each paired with the reading that shows whether the probe was in contact.
  * measure_humidity mirrors measure_moisture, so it's covered too.
  */
-const ZERO_CONFIRMED_CAPABILITIES = new Set(['measure_moisture']);
+const PROBE_PARTNER: Record<string, string> = {
+  measure_moisture: 'measure_nutrition',
+  measure_nutrition: 'measure_moisture',
+};
 
-/** Consecutive 0 readings needed before a 0 is believed. */
+/** Consecutive 0 readings needed before a plausible 0 is believed. */
 const ZERO_CONFIRMATIONS = 3;
+
+/** How recent the partner reading must be to count as the same moment. */
+const PROBE_FAULT_WINDOW_MS = 60 * 60_000;
+
+/**
+ * Longest a probe fault may hide a 0. After this the 0 is shown, so a probe
+ * that has really been pulled out doesn't show a stale value forever.
+ */
+const PROBE_FAULT_MAX_HOLD_MS = 24 * 3_600_000;
 
 export default class MiFloraDevice extends Homey.Device {
   private _id: string = '';
@@ -151,6 +164,15 @@ export default class MiFloraDevice extends Homey.Device {
   private _zeroStreak: Map<string, number> = new Map();
 
   /**
+   * Latest value the sensor reported per probe capability, whether or not it
+   * was shown, used to tell a probe fault from a real reading.
+   */
+  private _rawProbe: Map<string, { value: number; at: number }> = new Map();
+
+  /** When the current probe fault began, or null when the probe is reading. */
+  private _probeFaultSince: number | null = null;
+
+  /**
    * True when some reading arrived recently, whether by connecting or by
    * broadcast. A failed connection only means the readings are stale if
    * nothing else has reported in the meantime.
@@ -193,25 +215,44 @@ export default class MiFloraDevice extends Homey.Device {
       return false;
     }
 
-    // Some sensors (seen on Marble Green Pothos's RoPot) intermittently report
-    // moisture 0 and conductivity 0 together while the soil is wet: a probe
-    // glitch, not a reading. A single 0 must not replace a good value, or the
-    // plant (and HomeKit's humidity) flips to 0% and back. Only a run of 0s is
-    // believed; any non-zero reading resets the run. Soil really drying out
-    // declines gradually, so waiting for confirmation costs little. This is
-    // checked before the reading is marked fresh, so a held-back 0 can't block
-    // the good broadcasts that follow it.
-    if (ZERO_CONFIRMED_CAPABILITIES.has(capability) && typeof value === 'number') {
+    // A 0 from the soil probe is not always a reading. Marble Green Pothos's
+    // RoPot drops from ~70% straight to moisture 0 AND conductivity 0, sometimes
+    // for hours: the probe isn't reading the soil. Soil that really dries out
+    // declines gradually and keeps some conductivity (Jade Jewel read 0% at
+    // 197 µS/cm). So:
+    //   - moisture 0 with conductivity 0 (or the reverse) is a probe fault: keep
+    //     the last good value, for up to PROBE_FAULT_MAX_HOLD_MS;
+    //   - any other 0 must repeat ZERO_CONFIRMATIONS times in a row first.
+    // Held-back readings change nothing: not the value, the mirrored humidity,
+    // the alarms or the Flow triggers. This runs before the reading is marked
+    // fresh, so a held-back 0 can't block the good broadcasts that follow.
+    const partner = PROBE_PARTNER[capability];
+    if (partner && typeof value === 'number') {
+      const now = Date.now();
+      this._rawProbe.set(capability, { value, at: now });
       const current = this.getCapabilityValue(capability);
+
       if (value === 0 && typeof current === 'number' && current > 0) {
-        const streak = (this._zeroStreak.get(capability) ?? 0) + 1;
-        this._zeroStreak.set(capability, streak);
-        if (streak < ZERO_CONFIRMATIONS) {
-          this.log(`${ capability } read 0 (${ streak }/${ ZERO_CONFIRMATIONS }); keeping ${ current } until confirmed`);
-          return false;
+        const other = this._rawProbe.get(partner);
+        const probeFault = other !== undefined && other.value === 0 && now - other.at < PROBE_FAULT_WINDOW_MS;
+        if (probeFault) {
+          this._probeFaultSince ??= now;
+          if (now - this._probeFaultSince < PROBE_FAULT_MAX_HOLD_MS) {
+            this.log(`${ capability } read 0 with ${ partner } also 0: probe not reading soil; keeping ${ current }`);
+            return false;
+          }
+        } else {
+          const streak = (this._zeroStreak.get(capability) ?? 0) + 1;
+          this._zeroStreak.set(capability, streak);
+          if (streak < ZERO_CONFIRMATIONS) {
+            this.log(`${ capability } read 0 (${ streak }/${ ZERO_CONFIRMATIONS }); keeping ${ current } until confirmed`);
+            return false;
+          }
         }
       }
+
       this._zeroStreak.delete(capability);
+      if (value > 0) this._probeFaultSince = null;
     }
 
     if (source === 'connected') {
