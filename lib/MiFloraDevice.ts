@@ -10,6 +10,15 @@ import { CombinedCapabilities } from '../types/Capabilities';
  */
 export type ValueSource = 'connected' | 'advertised';
 
+/**
+ * Capabilities where a 0 needs confirming before it replaces a non-zero value.
+ * measure_humidity mirrors measure_moisture, so it's covered too.
+ */
+const ZERO_CONFIRMED_CAPABILITIES = new Set(['measure_moisture']);
+
+/** Consecutive 0 readings needed before a 0 is believed. */
+const ZERO_CONFIRMATIONS = 3;
+
 export default class MiFloraDevice extends Homey.Device {
   private _id: string = '';
   private _retry: number = 0;
@@ -137,6 +146,11 @@ export default class MiFloraDevice extends Homey.Device {
   private _lastValueUpdate: number = 0;
 
   /**
+   * Consecutive 0 readings seen per capability while a non-zero value is shown.
+   */
+  private _zeroStreak: Map<string, number> = new Map();
+
+  /**
    * True when some reading arrived recently, whether by connecting or by
    * broadcast. A failed connection only means the readings are stale if
    * nothing else has reported in the meantime.
@@ -177,6 +191,27 @@ export default class MiFloraDevice extends Homey.Device {
     // to broadcast but too weak or intermittent to connect.
     if (source === 'advertised' && this.hasFreshConnectedValue(capability)) {
       return false;
+    }
+
+    // Some sensors (seen on Marble Green Pothos's RoPot) intermittently report
+    // moisture 0 and conductivity 0 together while the soil is wet: a probe
+    // glitch, not a reading. A single 0 must not replace a good value, or the
+    // plant (and HomeKit's humidity) flips to 0% and back. Only a run of 0s is
+    // believed; any non-zero reading resets the run. Soil really drying out
+    // declines gradually, so waiting for confirmation costs little. This is
+    // checked before the reading is marked fresh, so a held-back 0 can't block
+    // the good broadcasts that follow it.
+    if (ZERO_CONFIRMED_CAPABILITIES.has(capability) && typeof value === 'number') {
+      const current = this.getCapabilityValue(capability);
+      if (value === 0 && typeof current === 'number' && current > 0) {
+        const streak = (this._zeroStreak.get(capability) ?? 0) + 1;
+        this._zeroStreak.set(capability, streak);
+        if (streak < ZERO_CONFIRMATIONS) {
+          this.log(`${ capability } read 0 (${ streak }/${ ZERO_CONFIRMATIONS }); keeping ${ current } until confirmed`);
+          return false;
+        }
+      }
+      this._zeroStreak.delete(capability);
     }
 
     if (source === 'connected') {
